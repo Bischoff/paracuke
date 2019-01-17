@@ -14,30 +14,30 @@ import (
   "time"
 )
 
-type StepFunction func(context string, args []string) bool
+type StepFunction func(context *Context, args []string) bool
 
-type RegisteredStep struct {
+type Context struct {
+  Data map[string]string
+  Features []string
+}
+
+type registeredStep struct {
   re *regexp.Regexp
   step StepFunction
 }
 
-type Context struct {
-  name string
-  features []string
-}
-
-type Scenario struct {
+type scenario struct {
   name string
   steps []string
 }
 
-var registeredSteps []RegisteredStep = []RegisteredStep{}
+var registeredSteps []registeredStep = []registeredStep{}
 
 var wg sync.WaitGroup
 
 // Cucumber emulation
 func registerStep(reStr string, stepFunc StepFunction) {
-  registeredSteps = append(registeredSteps, RegisteredStep { re: regexp.MustCompile(reStr), step: stepFunc })
+  registeredSteps = append(registeredSteps, registeredStep { re: regexp.MustCompile(reStr), step: stepFunc })
 }
 
 func Given(reStr string, stepFunc StepFunction) {
@@ -63,83 +63,92 @@ func syntaxError() {
 
 // Error reading the contexts
 func contextsReadError(filename string, err error) {
-  fmt.Fprintf(os.Stderr, "Unable to read contexts file \"%s\":\n", filename)
-  fmt.Fprintf(os.Stderr, "  %s\n", err.Error())
+  fmt.Fprintf(os.Stderr, "\x1b[31mUnable to read contexts file \"%s\":\n", filename)
+  fmt.Fprintf(os.Stderr, "\x1b[31m  %s\x1b[30m\n", err.Error())
   os.Exit(2)
 }
 
 // Syntax error in the contexts
 func contextsSyntaxError(filename string, line string, linenum int) {
-  fmt.Fprintf(os.Stderr, "Syntax error on line %d of contexts file \"%s\":\n", linenum, filename)
-  fmt.Fprintf(os.Stderr, "  \"%s\"\n", line)
+  fmt.Fprintf(os.Stderr, "\x1b[31mSyntax error on line %d of contexts file \"%s\":\x1b[30m\n", linenum, filename)
+  fmt.Fprintf(os.Stderr, "\x1b[31m  \"%s\"\x1b[30m\n", line)
   os.Exit(2)
 }
 
 // Duplicate context name error
 func duplicateContextError(filename string, line string, linenum int) {
-  fmt.Fprintf(os.Stderr, "Duplicate context name on line %d of contexts file \"%s\":\n", linenum, filename)
-  fmt.Fprintf(os.Stderr, "  \"%s\"\n", line)
+  fmt.Fprintf(os.Stderr, "\x1b[31mDuplicate context name on line %d of contexts file \"%s\":\x1b[30m\n", linenum, filename)
+  fmt.Fprintf(os.Stderr, "\x1b[31m  \"%s\"\x1b[30m\n", line)
   os.Exit(3)
 }
 
 // Error reading the scenarios
 func scenariosReadError(filename string, err error) {
-  fmt.Fprintf(os.Stderr, "Unable to read feature file \"%s\":\n", filename)
-  fmt.Fprintf(os.Stderr, "  %s\n", err.Error())
+  fmt.Fprintf(os.Stderr, "\x1b[31mUnable to read feature file \"%s\":\x1b[30m\n", filename)
+  fmt.Fprintf(os.Stderr, "\x1b[31m  %s\x1b[30m\n", err.Error())
   os.Exit(4)
 }
 
-// Syntax error in the scenarios
-func scenariosSyntaxError(filename string, line string, linenum int) {
-  fmt.Fprintf(os.Stderr, "Syntax error on line %d of feature file \"%s\":\n", linenum, filename)
-  fmt.Fprintf(os.Stderr, "  \"%s\"\n", line)
+// Syntax error in the feature's lines
+func lineSyntaxError(filename string, line string, linenum int) {
+  fmt.Fprintf(os.Stderr, "\x1b[31mSyntax error on line %d of feature file \"%s\":\x1b[30m\n", linenum, filename)
+  fmt.Fprintf(os.Stderr, "\x1b[31m  \"%s\"\x1b[30m\n", line)
   os.Exit(5)
 }
 
 // Check duplicate context name
 func checkDuplicateContext(contexts *[]Context, name string, filename string, line string, linenum int) {
   for _, context := range *contexts {
-    if (context.name == name) {
+    if (context.Data["name"] == name) {
       duplicateContextError(filename, line, linenum)
     }
   }
 }
 
 // Execute a step
-func executeStep(context string, stepTitle string, step StepFunction, args []string) bool {
+func executeStep(context *Context, stepTitle string, step StepFunction, args []string) bool {
+  name := context.Data["name"]
   if step(context, args) {
-    fmt.Printf("\x1b[32m(%s)   %s\x1b[30m\n", context, stepTitle)
+    fmt.Printf("\x1b[32m(%s)    %s\x1b[30m\n", name, stepTitle)
     return true
   }
-  fmt.Printf("\x1b[31m(%s)   %s\x1b[30m\n", context, stepTitle)
-  fmt.Printf("\x1b[31m(%s)   Step failed!\x1b[30m\n", context)
+  fmt.Printf("\x1b[31m(%s)    %s\x1b[30m\n", name, stepTitle)
+  fmt.Printf("\x1b[31m(%s)    Step failed!\x1b[30m\n", name)
   return false
 }
 
 // Start a feature
-func startFeature(context string, featureTitle string) {
-  fmt.Printf("\x1b[32m(%s)  %s\x1b[30m\n", context, featureTitle)
+func startFeature(context *Context, featureTitle string) {
+  name := context.Data["name"]
   dashes := strings.Repeat("-", len(featureTitle))
-  fmt.Printf("\x1b[32m(%s)  %s\x1b[30m\n", context, dashes)
-  fmt.Printf("\x1b[32m(%s)\x1b[30m\n", context)
+  fmt.Printf("\x1b[32m(%s)  %s\x1b[30m\n", name, featureTitle)
+  fmt.Printf("\x1b[32m(%s)  %s\x1b[30m\n", name, dashes)
+  fmt.Printf("\x1b[32m(%s)\x1b[30m\n", name)
 }
 
 // Start a scenario
-func startScenario(context string, scenarioTitle string) {
-  fmt.Printf("\x1b[32m(%s)  %s\x1b[30m\n", context, scenarioTitle)
+func startScenario(context *Context, scenarioTitle string) {
+  name := context.Data["name"]
+  fmt.Printf("\x1b[32m(%s)  %s\x1b[30m\n", name, scenarioTitle)
 }
 
 // Skip a step
-func skipStep(context string, stepTitle string) {
-  fmt.Printf("\x1b[36m(%s)   %s\x1b[30m\n", context, stepTitle)
-  fmt.Printf("\x1b[36m(%s)     (skipped...)\x1b[30m\n", context)
+func skipStep(context *Context, stepTitle string) {
+  name := context.Data["name"]
+  fmt.Printf("\x1b[36m(%s)    %s\x1b[30m\n", name, stepTitle)
+  fmt.Printf("\x1b[36m(%s)      (skipped...)\x1b[30m\n", name)
 }
 
 // Start a step
-func startStep(context string, stepTitle string) bool {
+func startStep(context *Context, stepTitle string) bool {
+  stepPrefix := ""
+  for _, stepPrefix = range []string { "Given", "When", "Then", "And" } {
+    if strings.HasPrefix(stepTitle, stepPrefix) { break }
+  }
+  toMatch := strings.TrimSpace(strings.TrimPrefix(stepTitle, stepPrefix))
   for _, reg := range registeredSteps {
-    if reg.re.MatchString(stepTitle) {
-      args := reg.re.FindStringSubmatch(stepTitle)
+    if reg.re.MatchString(toMatch) {
+      args := reg.re.FindStringSubmatch(toMatch)
       return executeStep(context, stepTitle, reg.step, args)
     }
   }
@@ -152,8 +161,8 @@ func debugContexts(title string, contexts *[]Context) {
   fmt.Printf("(debug) *** %s\n", title)
   fmt.Printf("(debug)\n")
   for _, context := range *contexts {
-    fmt.Printf("(debug) context \"%s\":\n", context.name)
-    for _, feature := range context.features {
+    fmt.Printf("(debug) context \"%s\":\n", context.Data["name"])
+    for _, feature := range context.Features {
       fmt.Printf("(debug)   feature \"%s\"\n", feature)
     }
     fmt.Printf("(debug)\n")
@@ -162,7 +171,7 @@ func debugContexts(title string, contexts *[]Context) {
 }
 
 // Debug details of a series of scenarios
-func debugScenarios(feature *string, scenarios *[]Scenario) {
+func debugScenarios(feature *string, scenarios *[]scenario) {
   fmt.Printf("(debug) *** %s\n", *feature)
   fmt.Printf("(debug)\n")
   for _, scenario := range *scenarios {
@@ -200,48 +209,54 @@ func appendContext(init *[]Context, parallel *[]Context, end *[]Context, filenam
   for i, feature := range features {
     features[i] = strings.TrimSpace(feature)
   }
+  context := Context { Data: make(map[string]string), Features: features }
+  context.Data["name"] = name
   switch name {
     case "init":
-      *init = append(*init, Context { name: name, features: features })
+      *init = append(*init, context)
     case "end":
-      *end = append(*end, Context { name: name, features: features })
+      *end = append(*end, context)
     default:
-      *parallel = append(*parallel, Context { name: name, features: features })
+      *parallel = append(*parallel, context)
     }
 }
 
-// Append a scenario or a step
-func appendScenario(feature *string, scenarios *[]Scenario, filename string, line string, linenum int) {
+// Append a feature's line
+func appendLine(line string, feature *string, scenarios *[]scenario) bool {
   shortLine := strings.TrimSpace(line)
   if shortLine == "" || strings.HasPrefix(shortLine, "#") {
-    return
+    return true
   }
 
-  if strings.HasPrefix(shortLine, "Feature") {
+  // Feature
+  if strings.HasPrefix(shortLine, "Feature:") {
+    if len(*scenarios) != 0 { return false }
     *feature = shortLine
-    return
+    return true
   }
 
-  if strings.HasPrefix(shortLine, "Scenario") {
-    *scenarios = append(*scenarios, Scenario { name: shortLine, steps: make([]string, 0) })
-    return
+  // Scenario
+  if strings.HasPrefix(shortLine, "Scenario:") {
+    *scenarios = append(*scenarios, scenario { name: shortLine, steps: make([]string, 0) } )
+    return true
   }
 
-  if strings.HasPrefix(shortLine, "Given") || strings.HasPrefix(shortLine, "When") || strings.HasPrefix(shortLine, "Then") || strings.HasPrefix(shortLine, "And") {
-    if len(*scenarios) > 0 {
-      steps := &(*scenarios)[len(*scenarios) - 1].steps
-      *steps = append(*steps, shortLine)
-      return
+  // Step
+  for _, stepPrefix := range []string { "Given", "When", "Then", "And" } {
+    if strings.HasPrefix(shortLine, stepPrefix) {
+      if len(*scenarios) == 0 { return false }
+      lastScenario := &(*scenarios)[len(*scenarios) - 1]
+      lastScenario.steps = append(lastScenario.steps, shortLine)
+      return true
     }
   }
 
-  scenariosSyntaxError(filename, line, linenum)
+  // Feature description
+  return len(*scenarios) == 0
 }
 
-//
-
 // Read the scenarios
-func readScenarios(feature *string, scenarios *[]Scenario, debug bool, filename string) {
+func readScenarios(feature *string, scenarios *[]scenario, debug bool, filename string) {
   file, err := os.Open(filename)
   if (err != nil) {
     scenariosReadError(filename, err)
@@ -261,7 +276,9 @@ func readScenarios(feature *string, scenarios *[]Scenario, debug bool, filename 
     }
     buffer.Write(part)
     if !prefix {
-      appendScenario(feature, scenarios, filename, buffer.String(), linenum)
+      if !appendLine(buffer.String(), feature, scenarios) {
+        lineSyntaxError(filename, buffer.String(), linenum)
+      }
       buffer.Reset()
     }
   }
@@ -271,7 +288,7 @@ func readScenarios(feature *string, scenarios *[]Scenario, debug bool, filename 
 }
 
 // Run the scenarios
-func runScenarios(feature string, scenarios *[]Scenario, context string) {
+func runScenarios(feature string, scenarios *[]scenario, context *Context) {
   startFeature(context, feature)
   for _, scenario := range *scenarios {
     skip := false
@@ -285,17 +302,18 @@ func runScenarios(feature string, scenarios *[]Scenario, context string) {
       // allow a context switch after the step
       time.Sleep(time.Millisecond)
     }
+    fmt.Printf("\x1b[32m(%s)\x1b[30m\n", context.Data["name"])
   }
 }
 
 // Run all features in a given context
 func runFeatures(debug bool, context Context) {
-  for _, filename := range context.features {
+  for _, filename := range context.Features {
     feature := ""
-    scenarios := []Scenario{}
+    scenarios := []scenario{}
 
     readScenarios(&feature, &scenarios, debug, filename)
-    runScenarios(feature, &scenarios, context.name)
+    runScenarios(feature, &scenarios, &context)
   }
   wg.Done()
 }

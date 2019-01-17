@@ -1,11 +1,12 @@
-# Dummy feature to test paracuke (1/2)
+# Dummy feature 1/2
 
 Feature: Random waits and arithmetic
+  This is just to get an idea and to test paracuke
 
   Scenario: Express our satisfaction
-    When I say "yippee"
+    When I say "Yippee!"
     And I wait for a random time
-    And I say "hurray"
+    And I say "Hurray!"
 
   Scenario: Basic arithmetic
     When I add 2 and 3
