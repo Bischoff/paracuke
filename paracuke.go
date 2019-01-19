@@ -14,6 +14,7 @@ import (
   "time"
 )
 
+// Exported types
 type StepFunction func(context *Context, args []string) bool
 
 type Context struct {
@@ -21,16 +22,24 @@ type Context struct {
   Features []string
 }
 
+// Internal types
 type registeredStep struct {
   re *regexp.Regexp
   step StepFunction
 }
 
 type scenario struct {
-  name string
+  title string
   steps []string
 }
 
+type feature struct {
+  title string
+  description []string
+  scenarios []scenario
+}
+
+// Global variables
 var registeredSteps []registeredStep = []registeredStep{}
 
 var wg sync.WaitGroup
@@ -82,8 +91,8 @@ func duplicateContextError(filename string, line string, linenum int) {
   os.Exit(3)
 }
 
-// Error reading the scenarios
-func scenariosReadError(filename string, err error) {
+// Error reading the feature
+func featureReadError(filename string, err error) {
   fmt.Fprintf(os.Stderr, "\x1b[31mUnable to read feature file \"%s\":\x1b[30m\n", filename)
   fmt.Fprintf(os.Stderr, "\x1b[31m  %s\x1b[30m\n", err.Error())
   os.Exit(4)
@@ -108,6 +117,7 @@ func checkDuplicateContext(contexts *[]Context, name string, filename string, li
 // Execute a step
 func executeStep(context *Context, stepTitle string, step StepFunction, args []string) bool {
   name := context.Data["name"]
+
   if step(context, args) {
     fmt.Printf("\x1b[32m(%s)    %s\x1b[30m\n", name, stepTitle)
     return true
@@ -118,18 +128,24 @@ func executeStep(context *Context, stepTitle string, step StepFunction, args []s
 }
 
 // Start a feature
-func startFeature(context *Context, featureTitle string) {
+func startFeature(context *Context, feat *feature) {
   name := context.Data["name"]
-  dashes := strings.Repeat("-", len(featureTitle))
-  fmt.Printf("\x1b[32m(%s)  %s\x1b[30m\n", name, featureTitle)
+  dashes := strings.Repeat("-", len(feat.title))
+
+  fmt.Printf("\x1b[32m(%s)  %s\x1b[30m\n", name, feat.title)
   fmt.Printf("\x1b[32m(%s)  %s\x1b[30m\n", name, dashes)
+  fmt.Printf("\x1b[32m(%s)\x1b[30m\n", name)
+  for _, desc := range feat.description {
+    fmt.Printf("\x1b[32m(%s)    %s\x1b[30m\n", name, desc)
+  }
   fmt.Printf("\x1b[32m(%s)\x1b[30m\n", name)
 }
 
 // Start a scenario
-func startScenario(context *Context, scenarioTitle string) {
+func startScenario(context *Context, scen *scenario) {
   name := context.Data["name"]
-  fmt.Printf("\x1b[32m(%s)  %s\x1b[30m\n", name, scenarioTitle)
+
+  fmt.Printf("\x1b[32m(%s)  %s\x1b[30m\n", name, scen.title)
 }
 
 // Skip a step
@@ -158,26 +174,29 @@ func startStep(context *Context, stepTitle string) bool {
 
 // Debug details of a series of contexts
 func debugContexts(title string, contexts *[]Context) {
-  fmt.Printf("(debug) *** %s\n", title)
+  fmt.Printf("(debug) section \"%s\"\n", title)
   fmt.Printf("(debug)\n")
   for _, context := range *contexts {
-    fmt.Printf("(debug) context \"%s\":\n", context.Data["name"])
+    fmt.Printf("(debug)   context \"%s\":\n", context.Data["name"])
     for _, feature := range context.Features {
-      fmt.Printf("(debug)   feature \"%s\"\n", feature)
+      fmt.Printf("(debug)     feature \"%s\"\n", feature)
     }
     fmt.Printf("(debug)\n")
   }
   fmt.Printf("(debug)\n")
 }
 
-// Debug details of a series of scenarios
-func debugScenarios(feature *string, scenarios *[]scenario) {
-  fmt.Printf("(debug) *** %s\n", *feature)
+// Debug details of a feature
+func debugFeature(feat *feature) {
+  fmt.Printf("(debug) feature \"%s\"\n", feat.title)
+  for _, desc := range feat.description {
+    fmt.Printf("(debug)   description \"%s\"\n", desc)
+  }
   fmt.Printf("(debug)\n")
-  for _, scenario := range *scenarios {
-    fmt.Printf("(debug) scenario \"%s\":\n", scenario.name)
-    for _, step := range scenario.steps {
-      fmt.Printf("(debug)  step \"%s\"\n", step)
+  for _, scen := range feat.scenarios {
+    fmt.Printf("(debug)   scenario \"%s\":\n", scen.title)
+    for _, step := range scen.steps {
+      fmt.Printf("(debug)     step \"%s\"\n", step)
     }
     fmt.Printf("(debug)\n")
   }
@@ -221,45 +240,48 @@ func appendContext(init *[]Context, parallel *[]Context, end *[]Context, filenam
     }
 }
 
-// Append a feature's line
-func appendLine(line string, feature *string, scenarios *[]scenario) bool {
+// Append a line to a feature
+func appendLine(line string, feat *feature) bool {
   shortLine := strings.TrimSpace(line)
   if shortLine == "" || strings.HasPrefix(shortLine, "#") {
     return true
   }
 
-  // Feature
+  // Feature title
   if strings.HasPrefix(shortLine, "Feature:") {
-    if len(*scenarios) != 0 { return false }
-    *feature = shortLine
+    if len(feat.scenarios) != 0 { return false }
+    feat.title = shortLine
     return true
   }
 
-  // Scenario
+  // Scenario title
   if strings.HasPrefix(shortLine, "Scenario:") {
-    *scenarios = append(*scenarios, scenario { name: shortLine, steps: make([]string, 0) } )
+    feat.scenarios = append(feat.scenarios, scenario { title: shortLine, steps: make([]string, 0) } )
     return true
   }
 
   // Step
   for _, stepPrefix := range []string { "Given", "When", "Then", "And" } {
     if strings.HasPrefix(shortLine, stepPrefix) {
-      if len(*scenarios) == 0 { return false }
-      lastScenario := &(*scenarios)[len(*scenarios) - 1]
+      if len(feat.scenarios) == 0 { return false }
+      lastScenario := &feat.scenarios[len(feat.scenarios) - 1]
       lastScenario.steps = append(lastScenario.steps, shortLine)
       return true
     }
   }
 
   // Feature description
-  return len(*scenarios) == 0
+  if len(feat.scenarios) != 0 { return false }
+  feat.description = append(feat.description, shortLine)
+  return true
 }
 
-// Read the scenarios
-func readScenarios(feature *string, scenarios *[]scenario, debug bool, filename string) {
+// Read the feature
+func readFeature(filename string, debug bool, feat *feature) {
   file, err := os.Open(filename)
   if (err != nil) {
-    scenariosReadError(filename, err)
+    featureReadError(filename, err)
+    return
   }
   defer file.Close()
 
@@ -272,28 +294,29 @@ func readScenarios(feature *string, scenarios *[]scenario, debug bool, filename 
       break
     }
     if err != nil {
-      scenariosReadError(filename, err)
+      featureReadError(filename, err)
+      return
     }
     buffer.Write(part)
     if !prefix {
-      if !appendLine(buffer.String(), feature, scenarios) {
+      if !appendLine(buffer.String(), feat) {
         lineSyntaxError(filename, buffer.String(), linenum)
       }
       buffer.Reset()
     }
   }
   if (debug) {
-    debugScenarios(feature, scenarios)
+    debugFeature(feat)
   }
 }
 
-// Run the scenarios
-func runScenarios(feature string, scenarios *[]scenario, context *Context) {
-  startFeature(context, feature)
-  for _, scenario := range *scenarios {
+// Run a feature
+func runFeature(context *Context, feat *feature) {
+  startFeature(context, feat)
+  for _, scen := range feat.scenarios {
     skip := false
-    startScenario(context, scenario.name)
-    for _, step := range scenario.steps {
+    startScenario(context, &scen)
+    for _, step := range scen.steps {
       if skip {
         skipStep(context, step)
       } else {
@@ -309,11 +332,10 @@ func runScenarios(feature string, scenarios *[]scenario, context *Context) {
 // Run all features in a given context
 func runFeatures(debug bool, context Context) {
   for _, filename := range context.Features {
-    feature := ""
-    scenarios := []scenario{}
+    feat := feature { "", []string{ }, []scenario{ } }
 
-    readScenarios(&feature, &scenarios, debug, filename)
-    runScenarios(feature, &scenarios, &context)
+    readFeature(filename, debug, &feat)
+    runFeature(&context, &feat)
   }
   wg.Done()
 }
