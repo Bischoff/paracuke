@@ -1,4 +1,5 @@
 # paracuke 0.1
+<p align="center"><img src=assets/images/Paracuke.png></p>
 paracuke is a parallel cucumber written in go
 
   https://docs.cucumber.io
