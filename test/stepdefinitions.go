@@ -15,14 +15,14 @@ func main() {
 
   paracuke.When("^I say \"(.*)\"$", func(context *paracuke.Context, args []string) bool {
     name := context.Data["name"]
-    fmt.Printf("(%s)     %s\n", name, args[1] )
+    fmt.Printf("(%s)      %s\n", name, args[1] )
     return true
   })
 
   paracuke.When("^I wait for a random time$", func(context *paracuke.Context, args []string) bool {
     name := context.Data["name"]
     duration := rand.Intn(10 + 1)
-    fmt.Printf("(%s)     Waiting for %d seconds\n", name, duration)
+    fmt.Printf("(%s)      Waiting for %d seconds\n", name, duration)
     time.Sleep(time.Duration(duration) * time.Second )
     return true
   })
@@ -30,7 +30,7 @@ func main() {
   paracuke.When("^I wait for (.*) seconds$", func(context *paracuke.Context, args []string) bool {
     name := context.Data["name"]
     duration, _ := strconv.Atoi(args[1])
-    fmt.Printf("(%s)     Waiting for %d seconds\n", name, duration)
+    fmt.Printf("(%s)      Waiting for %d seconds\n", name, duration)
     time.Sleep(time.Duration(duration) * time.Second )
     return true
   })
@@ -48,5 +48,5 @@ func main() {
     return result == tested
   })
 
-  paracuke.ParallelTests()
+  paracuke.RunTests()
 }

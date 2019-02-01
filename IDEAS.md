@@ -18,7 +18,7 @@ many as we want.
 The syntax of the contexts file could be changed to json, yaml, or XML.
 Or mimick the data structures of Go.
 
-There is no final results report printed yet.
+Final results could report file and line of errors
 
 JUnit reports currently cannot be generated.
 

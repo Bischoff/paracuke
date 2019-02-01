@@ -135,7 +135,7 @@ print out `(macosx)     Hurray!` when run in the context named `macosx`.
 
 At the end of your step definitions, start the paracuke engine:
 ```go
-  paracuke.ParallelTests()
+  paracuke.RunTests()
 ```
 
 

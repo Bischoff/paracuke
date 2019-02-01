@@ -1,4 +1,4 @@
-// paracuke, still very experimental
+// paracuke, a parallel cucumber
 
 package paracuke
 
@@ -39,12 +39,27 @@ type feature struct {
   scenarios []scenario
 }
 
+type failure struct {
+  ctxt string
+  scen string
+}
+
+type cucumberRun struct {
+  debug bool
+  successfulScenarios int
+  failedScenarios []failure
+  skippedScenarios int
+  successfulSteps int
+  failedSteps int
+  skippedSteps int
+}
+
 // Global variables
 var registeredSteps []registeredStep = []registeredStep{}
 
 var wg sync.WaitGroup
 
-// Cucumber emulation
+// Cucumber steps definition
 func registerStep(reStr string, stepFunc StepFunction) {
   registeredSteps = append(registeredSteps, registeredStep { re: regexp.MustCompile(reStr), step: stepFunc })
 }
@@ -61,7 +76,7 @@ func Then(reStr string, stepFunc StepFunction) {
   registerStep(reStr, stepFunc)
 }
 
-// SyntaxError
+// Syntax error
 func syntaxError() {
   fmt.Fprintf(os.Stderr, "Syntax: %s [-v|-d] [<contexts>]\n", os.Args[0])
   fmt.Fprintf(os.Stderr, "  -v: show version\n")
@@ -115,13 +130,15 @@ func checkDuplicateContext(contexts *[]Context, name string, filename string, li
 }
 
 // Execute a step
-func executeStep(context *Context, stepTitle string, step StepFunction, args []string) bool {
+func executeStep(run *cucumberRun, context *Context, stepTitle string, step StepFunction, args []string) bool {
   name := context.Data["name"]
 
   if step(context, args) {
+    run.successfulSteps++
     fmt.Printf("\x1b[32m(%s)    %s\x1b[30m\n", name, stepTitle)
     return true
   }
+  run.failedSteps++
   fmt.Printf("\x1b[31m(%s)    %s\x1b[30m\n", name, stepTitle)
   fmt.Printf("\x1b[31m(%s)    Step failed!\x1b[30m\n", name)
   return false
@@ -130,33 +147,32 @@ func executeStep(context *Context, stepTitle string, step StepFunction, args []s
 // Start a feature
 func startFeature(context *Context, feat *feature) {
   name := context.Data["name"]
-  dashes := strings.Repeat("-", len(feat.title))
 
-  fmt.Printf("\x1b[32m(%s)  %s\x1b[30m\n", name, feat.title)
-  fmt.Printf("\x1b[32m(%s)  %s\x1b[30m\n", name, dashes)
-  fmt.Printf("\x1b[32m(%s)\x1b[30m\n", name)
+  fmt.Printf("(%s)  %s\n", name, feat.title)
+  fmt.Printf("(%s)\n", name)
   for _, desc := range feat.description {
-    fmt.Printf("\x1b[32m(%s)    %s\x1b[30m\n", name, desc)
+    fmt.Printf("(%s)    %s\n", name, desc)
   }
-  fmt.Printf("\x1b[32m(%s)\x1b[30m\n", name)
+  fmt.Printf("(%s)\n", name)
 }
 
 // Start a scenario
 func startScenario(context *Context, scen *scenario) {
   name := context.Data["name"]
 
-  fmt.Printf("\x1b[32m(%s)  %s\x1b[30m\n", name, scen.title)
+  fmt.Printf("(%s)  %s\n", name, scen.title)
 }
 
 // Skip a step
-func skipStep(context *Context, stepTitle string) {
+func skipStep(run *cucumberRun, context *Context, stepTitle string) {
+  run.skippedSteps++
   name := context.Data["name"]
   fmt.Printf("\x1b[36m(%s)    %s\x1b[30m\n", name, stepTitle)
   fmt.Printf("\x1b[36m(%s)      (skipped...)\x1b[30m\n", name)
 }
 
 // Start a step
-func startStep(context *Context, stepTitle string) bool {
+func startStep(run *cucumberRun, context *Context, stepTitle string) bool {
   stepPrefix := ""
   for _, stepPrefix = range []string { "Given", "When", "Then", "And" } {
     if strings.HasPrefix(stepTitle, stepPrefix) { break }
@@ -165,7 +181,7 @@ func startStep(context *Context, stepTitle string) bool {
   for _, reg := range registeredSteps {
     if reg.re.MatchString(toMatch) {
       args := reg.re.FindStringSubmatch(toMatch)
-      return executeStep(context, stepTitle, reg.step, args)
+      return executeStep(run, context, stepTitle, reg.step, args)
     }
   }
   fmt.Printf("\n\x1b[31m(%s) *** Please implement step:\n   \"%s\"\x1b[30m\n\n", context, stepTitle)
@@ -277,7 +293,7 @@ func appendLine(line string, feat *feature) bool {
 }
 
 // Read the feature
-func readFeature(filename string, debug bool, feat *feature) {
+func readFeature(filename string, run *cucumberRun, feat *feature) {
   file, err := os.Open(filename)
   if (err != nil) {
     featureReadError(filename, err)
@@ -305,39 +321,66 @@ func readFeature(filename string, debug bool, feat *feature) {
       buffer.Reset()
     }
   }
-  if (debug) {
+  if (run.debug) {
     debugFeature(feat)
   }
 }
 
 // Run a feature
-func runFeature(context *Context, feat *feature) {
+func runFeature(run *cucumberRun, context *Context, feat *feature) {
   startFeature(context, feat)
   for _, scen := range feat.scenarios {
-    skip := false
+    failed := false
     startScenario(context, &scen)
     for _, step := range scen.steps {
-      if skip {
-        skipStep(context, step)
+      if failed {
+        skipStep(run, context, step)
       } else {
-        if !startStep(context, step) { skip = true }
+        if !startStep(run, context, step) { failed = true }
       }
       // allow a context switch after the step
       time.Sleep(time.Millisecond)
     }
-    fmt.Printf("\x1b[32m(%s)\x1b[30m\n", context.Data["name"])
+    if failed {
+      run.failedScenarios = append(run.failedScenarios, failure { context.Data["name"], scen.title } )
+    } else {
+      run.successfulScenarios++
+    }
+    fmt.Printf("(%s)\n", context.Data["name"])
   }
 }
 
 // Run all features in a given context
-func runFeatures(debug bool, context Context) {
+// - "run" is passed by pointer, because it is global to all goroutines
+// - "context" is passed by value, because it is local to a goroutine
+func runFeatures(run *cucumberRun, context Context) {
   for _, filename := range context.Features {
     feat := feature { "", []string{ }, []scenario{ } }
 
-    readFeature(filename, debug, &feat)
-    runFeature(&context, &feat)
+    readFeature(filename, run, &feat)
+    runFeature(run, &context, &feat)
   }
   wg.Done()
+}
+
+// Report the global results
+func reportResults(run *cucumberRun) {
+  totalScenarios := run.successfulScenarios + len(run.failedScenarios) + run.skippedScenarios
+  totalSteps := run.successfulSteps + run.failedSteps + run.skippedSteps
+
+  fmt.Printf("\n")
+  if len(run.failedScenarios) > 0 {
+    fmt.Printf("\x1b[31mFailed scenarios:\x1b[30m\n")
+    for _, fail := range run.failedScenarios {
+      fmt.Printf("\x1b[31m(%s)  %s\x1b[30m\n", fail.ctxt, fail.scen)
+    }
+    fmt.Printf("\n")
+  }
+
+  fmt.Printf("%d scenarios (\x1b[32m%d successful\x1b[30m, \x1b[31m%d failed\x1b[30m, \x1b[36m%d skipped\x1b[30m)\n",
+             totalScenarios, run.successfulScenarios, len(run.failedScenarios), run.skippedScenarios)
+  fmt.Printf("%d steps (\x1b[32m%d successful\x1b[30m, \x1b[31m%d failed\x1b[30m, \x1b[36m%d skipped\x1b[30m)\n",
+             totalSteps, run.successfulSteps, run.failedSteps, run.skippedSteps)
 }
 
 // Parse command line parameters
@@ -402,25 +445,32 @@ func readContexts(init *[]Context, parallel *[]Context, end *[]Context, debug bo
 
 // Run the contexts
 func runContexts(init *[]Context, parallel *[]Context, end *[]Context, debug bool) {
+  run := cucumberRun {
+    debug,
+    0, []failure { }, 0,  // scenario statistics
+    0, 0, 0,               // step statistics
+  }
+
   wg.Add(len(*init))
   for _, context := range *init {
-    go runFeatures(debug, context)
+    go runFeatures(&run, context)
   }
   wg.Wait()
   wg.Add(len(*parallel))
   for _, context := range *parallel {
-    go runFeatures(debug, context)
+    go runFeatures(&run, context)
   }
   wg.Wait()
   wg.Add(len(*end))
   for _, context := range *end {
-    go runFeatures(debug, context)
+    go runFeatures(&run, context)
   }
   wg.Wait()
+  reportResults(&run)
 }
 
-// Parallel tests
-func ParallelTests() {
+// Run tests
+func RunTests() {
   debug := false
   version := false
   filename := ""
