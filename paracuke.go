@@ -5,21 +5,31 @@ package paracuke
 import (
   "os"
   "fmt"
-  "bufio"
-  "bytes"
-  "io"
   "strings"
   "regexp"
   "sync"
   "time"
+  "bufio"
+  "bytes"
+  "io"
+  "io/ioutil"
+  "gopkg.in/yaml.v2"
 )
 
 // Exported types
 type StepFunction func(context *Context, args []string) bool
 
 type Context struct {
-  Data map[string]string
-  Features []string
+  Data map[string]string `yaml:"data"`
+  Features []string `yaml:"features"`
+}
+
+type ContextWrapper struct {
+  ContextWrapper Context `yaml:"context"`
+}
+
+type Batch struct {
+  BatchWrapper []ContextWrapper `yaml:"batch"`
 }
 
 // Internal types
@@ -93,38 +103,57 @@ func contextsReadError(filename string, err error) {
 }
 
 // Syntax error in the contexts
-func contextsSyntaxError(filename string, line string, linenum int) {
-  fmt.Fprintf(os.Stderr, "\x1b[31mSyntax error on line %d of contexts file \"%s\":\x1b[30m\n", linenum, filename)
-  fmt.Fprintf(os.Stderr, "\x1b[31m  \"%s\"\x1b[30m\n", line)
+func contextsSyntaxError(filename string, err error) {
+  fmt.Fprintf(os.Stderr, "\x1b[31mSyntax error in contexts file \"%s\":\x1b[30m\n", filename)
+  fmt.Fprintf(os.Stderr, "\x1b[31m  %s\x1b[30m\n", err.Error())
   os.Exit(2)
 }
 
-// Duplicate context name error
-func duplicateContextError(filename string, line string, linenum int) {
-  fmt.Fprintf(os.Stderr, "\x1b[31mDuplicate context name on line %d of contexts file \"%s\":\x1b[30m\n", linenum, filename)
-  fmt.Fprintf(os.Stderr, "\x1b[31m  \"%s\"\x1b[30m\n", line)
+// Missing context name error
+func missingContextNameError(b1 int, c1 int, filename string) {
+  fmt.Fprintf(os.Stderr, "\x1b[31mMissing context name in contexts file \"%s\":\x1b[30m\n", filename)
+  fmt.Fprintf(os.Stderr, "\x1b[31m  batch #%d, context #%d\x1b[30m\n", b1 + 1, c1 + 1)
   os.Exit(3)
+}
+
+// Duplicate context name error
+func duplicateContextNameError(filename string, name string) {
+  fmt.Fprintf(os.Stderr, "\x1b[31mDuplicate context name in contexts file \"%s\":\x1b[30m\n", filename)
+  fmt.Fprintf(os.Stderr, "\x1b[31m  \"%s\"\x1b[30m\n", name)
+  os.Exit(4)
 }
 
 // Error reading the feature
 func featureReadError(filename string, err error) {
   fmt.Fprintf(os.Stderr, "\x1b[31mUnable to read feature file \"%s\":\x1b[30m\n", filename)
   fmt.Fprintf(os.Stderr, "\x1b[31m  %s\x1b[30m\n", err.Error())
-  os.Exit(4)
+  os.Exit(5)
 }
 
 // Syntax error in the feature's lines
 func lineSyntaxError(filename string, line string, linenum int) {
   fmt.Fprintf(os.Stderr, "\x1b[31mSyntax error on line %d of feature file \"%s\":\x1b[30m\n", linenum, filename)
   fmt.Fprintf(os.Stderr, "\x1b[31m  \"%s\"\x1b[30m\n", line)
-  os.Exit(5)
+  os.Exit(6)
 }
 
-// Check duplicate context name
-func checkDuplicateContext(contexts *[]Context, name string, filename string, line string, linenum int) {
-  for _, context := range *contexts {
-    if (context.Data["name"] == name) {
-      duplicateContextError(filename, line, linenum)
+// Check name of context
+func checkContextName(batches *[]Batch, context *Context, b1 int, c1 int, filename string) {
+  name := context.Data["name"]
+  // existence
+  if name == "" {
+    missingContextNameError(b1, c1, filename)
+  }
+  // unicity
+  for b2, batch := range *batches {
+    for c2, other := range batch.BatchWrapper {
+      if b2 != b1 || c2 != c1 {
+        otherContext := &other.ContextWrapper
+        otherName := otherContext.Data["name"]
+        if otherName == name {
+          duplicateContextNameError(filename, name)
+        }
+      }
     }
   }
 }
@@ -188,16 +217,27 @@ func startStep(run *cucumberRun, context *Context, stepTitle string) bool {
   return false
 }
 
-// Debug details of a series of contexts
-func debugContexts(title string, contexts *[]Context) {
-  fmt.Printf("(debug) section \"%s\"\n", title)
-  fmt.Printf("(debug)\n")
-  for _, context := range *contexts {
-    fmt.Printf("(debug)   context \"%s\":\n", context.Data["name"])
-    for _, feature := range context.Features {
-      fmt.Printf("(debug)     feature \"%s\"\n", feature)
+// Check batches after reading them
+func checkBatches(batches *[]Batch, filename string) {
+  for b1, batch := range *batches {
+    for c1, context := range batch.BatchWrapper {
+      checkContextName(batches, &context.ContextWrapper, b1, c1, filename)
     }
+  }
+}
+
+// Debug details of a series of batches
+func debugBatches(batches *[]Batch) {
+  for _, batch := range *batches {
+    fmt.Printf("(debug) batch\n")
     fmt.Printf("(debug)\n")
+    for _, context := range batch.BatchWrapper {
+      fmt.Printf("(debug)   context \"%s\":\n", context.ContextWrapper.Data["name"])
+      for _, feature := range context.ContextWrapper.Features {
+        fmt.Printf("(debug)     feature \"%s\"\n", feature)
+      }
+      fmt.Printf("(debug)\n")
+    }
   }
   fmt.Printf("(debug)\n")
 }
@@ -217,43 +257,6 @@ func debugFeature(feat *feature) {
     fmt.Printf("(debug)\n")
   }
   fmt.Printf("(debug)\n")
-}
-
-// Append a context
-func appendContext(init *[]Context, parallel *[]Context, end *[]Context, filename string, line string, linenum int) {
-  if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
-    return
-  }
-
-  pair := strings.Split(line, ":")
-  if len(pair) != 2 {
-    contextsSyntaxError(filename, line, linenum)
-  }
-
-  name := strings.TrimSpace(pair[0])
-  switch name {
-    case "init":
-      checkDuplicateContext(init, name, filename, line, linenum)
-    case "end":
-      checkDuplicateContext(end, name, filename, line, linenum)
-    default:
-      checkDuplicateContext(parallel, name, filename, line, linenum)
-  }
-
-  features := strings.Split(pair[1], ",")
-  for i, feature := range features {
-    features[i] = strings.TrimSpace(feature)
-  }
-  context := Context { Data: make(map[string]string), Features: features }
-  context.Data["name"] = name
-  switch name {
-    case "init":
-      *init = append(*init, context)
-    case "end":
-      *end = append(*end, context)
-    default:
-      *parallel = append(*parallel, context)
-    }
 }
 
 // Append a line to a feature
@@ -368,18 +371,18 @@ func reportResults(run *cucumberRun) {
   totalScenarios := run.successfulScenarios + len(run.failedScenarios) + run.skippedScenarios
   totalSteps := run.successfulSteps + run.failedSteps + run.skippedSteps
 
-  fmt.Printf("\n")
+  fmt.Printf("(results)\n")
   if len(run.failedScenarios) > 0 {
-    fmt.Printf("\x1b[31mFailed scenarios:\x1b[30m\n")
+    fmt.Printf("(results)  \x1b[31mFailed scenarios:\x1b[30m\n")
     for _, fail := range run.failedScenarios {
-      fmt.Printf("\x1b[31m(%s)  %s\x1b[30m\n", fail.ctxt, fail.scen)
+      fmt.Printf("(results)  \x1b[31m(%s)  %s\x1b[30m\n", fail.ctxt, fail.scen)
     }
-    fmt.Printf("\n")
+    fmt.Printf("(results)  \n")
   }
 
-  fmt.Printf("%d scenarios (\x1b[32m%d successful\x1b[30m, \x1b[31m%d failed\x1b[30m, \x1b[36m%d skipped\x1b[30m)\n",
+  fmt.Printf("(results)  %d scenarios (\x1b[32m%d successful\x1b[30m, \x1b[31m%d failed\x1b[30m, \x1b[36m%d skipped\x1b[30m)\n",
              totalScenarios, run.successfulScenarios, len(run.failedScenarios), run.skippedScenarios)
-  fmt.Printf("%d steps (\x1b[32m%d successful\x1b[30m, \x1b[31m%d failed\x1b[30m, \x1b[36m%d skipped\x1b[30m)\n",
+  fmt.Printf("(results)  %d steps (\x1b[32m%d successful\x1b[30m, \x1b[31m%d failed\x1b[30m, \x1b[36m%d skipped\x1b[30m)\n",
              totalSteps, run.successfulSteps, run.failedSteps, run.skippedSteps)
 }
 
@@ -407,65 +410,37 @@ func parseArgs(debug *bool, version *bool, filename *string) {
   }
 }
 
-// Read the contexts
-func readContexts(init *[]Context, parallel *[]Context, end *[]Context, debug bool, filename string) {
-  file, err := os.Open(filename)
-  if (err != nil) {
+// Read the batches
+func readBatches(batches *[]Batch, debug bool, filename string) {
+  yamlFile, err := ioutil.ReadFile(filename)
+  if err != nil {
     contextsReadError(filename, err)
   }
-  defer file.Close()
-
-  reader := bufio.NewReader(file)
-  buffer := bytes.NewBuffer([]byte{})
-
-  for linenum := 1; ; linenum++ {
-    part, prefix, err := reader.ReadLine()
-    if err == io.EOF {
-      break
-    }
-    if err != nil {
-      contextsReadError(filename, err)
-    }
-    buffer.Write(part)
-    if !prefix {
-      appendContext(init, parallel, end, filename, buffer.String(), linenum)
-      buffer.Reset()
-    }
+  err = yaml.UnmarshalStrict(yamlFile, batches)
+  if err != nil {
+    contextsSyntaxError(filename, err)
   }
+  checkBatches(batches, filename)
   if (debug) {
-    if len(*init) > 0 {
-      debugContexts("Initialization", init)
-    }
-    debugContexts("Parallel", parallel)
-    if len(*end) > 0 {
-      debugContexts("End", end)
-    }
+    debugBatches(batches)
   }
 }
 
-// Run the contexts
-func runContexts(init *[]Context, parallel *[]Context, end *[]Context, debug bool) {
+// Run the batches
+func runBatches(batches *[]Batch, debug bool) {
   run := cucumberRun {
     debug,
     0, []failure { }, 0,  // scenario statistics
-    0, 0, 0,               // step statistics
+    0, 0, 0,              // step statistics
   }
 
-  wg.Add(len(*init))
-  for _, context := range *init {
-    go runFeatures(&run, context)
+  for _, batch := range *batches {
+    wg.Add(len(batch.BatchWrapper))
+    for _, context := range batch.BatchWrapper {
+      go runFeatures(&run, context.ContextWrapper)
+    }
+    wg.Wait()
   }
-  wg.Wait()
-  wg.Add(len(*parallel))
-  for _, context := range *parallel {
-    go runFeatures(&run, context)
-  }
-  wg.Wait()
-  wg.Add(len(*end))
-  for _, context := range *end {
-    go runFeatures(&run, context)
-  }
-  wg.Wait()
   reportResults(&run)
 }
 
@@ -476,12 +451,10 @@ func RunTests() {
   filename := ""
   parseArgs(&debug, &version, &filename)
   if version {
-    fmt.Printf("paracuke version 0.1\n")
+    fmt.Printf("(version)  paracuke version 0.2\n")
   }
 
-  init := make([]Context, 0)
-  parallel := make([]Context, 0)
-  end := make([]Context, 0)
-  readContexts(&init, &parallel, &end, debug, filename)
-  runContexts(&init, &parallel, &end, debug)
+  conf := []Batch { }
+  readBatches(&conf, debug, filename)
+  runBatches(&conf, debug)
 }

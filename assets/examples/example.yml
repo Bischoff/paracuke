@@ -1,0 +1,38 @@
+# Sample contexts file
+
+# This is what an initialization could look like:
+- batch:
+  - context:
+      data:
+        name: init
+      features:
+        - init.feature
+
+- batch:
+  - context:
+      data:
+        name: context1
+      features:
+        - first.feature
+  - context:
+      data:
+        name: context2
+        # You may define variables that are local to a context
+        fruit: apples, oranges
+      features:
+        - second.feature
+  # You can run several features in a given context
+  - context:
+      data:
+        name: mycontext
+      features:
+        - first.feature
+        - second.feature
+
+# This is what a termination could look like:
+- batch:
+  - context:
+      data:
+        name: end
+      features:
+        - end.feature
