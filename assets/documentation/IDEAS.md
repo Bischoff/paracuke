@@ -12,18 +12,9 @@ There should be a command-line option to ignore one or more contexts:
 would ignore the special initialization and termination contexts
 `init` and `end`.
 
-Instead of 3 phases (init, parallel, and end), we could define as
-many as we want.
-
-The syntax of the contexts file could be changed to json, yaml, or XML.
-Or mimick the data structures of Go.
-
-Final results could report file and line of errors
+Final results could report file and line number of errors
 
 JUnit reports currently cannot be generated.
-
-Performance could be increased by reading all features before starting
-to execute them.
 
 
 ## Cucumber facilities
@@ -36,8 +27,18 @@ Conditional tags are not supported yet:
 
 Similarly, there is no feature nor scenario hooks yet.
 
-There is no `Background` section,
-nor `Scenario outline` and `Examples`.
+There is no function to skip a scenario.
+
+There is no `Background` section.
+
+There is no `Scenario outline` and `Examples`.
+
+
+## Performance
+
+We could try to read all features before starting to execute them.
+
+Steps regular expressions are currently matched within a linear search.
 
 
 ## Property-based testing

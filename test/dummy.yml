@@ -1,0 +1,13 @@
+# Test of dummy features
+
+- batch:
+  - context:
+      data:
+        name: context1
+      features:
+        - test/dummy1.feature
+  - context:
+      data:
+        name: context2
+      features:
+        - test/dummy2.feature
