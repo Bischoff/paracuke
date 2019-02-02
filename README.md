@@ -15,6 +15,6 @@ engine, freeing the tester from the burden of
 implementing it inside the step definitions.
 
  * [license](LICENSE)
- * [reference documentation](assets/documentation/REFERENCE.md)
- * [possible evolutions](assets/documentation/IDEAS.md)
- * [example contexts file](assets/examples/example.yml)
+ * [reference documentation](documentation/REFERENCE.md)
+ * [possible evolutions](documentation/IDEAS.md)
+ * [example contexts file](documentation/examples/example.yml)

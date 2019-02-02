@@ -5,14 +5,15 @@
 Instead of a boolean, the steps could return a value out of three,
 meaning: success, failure, or skipped.
 
-There should be a command-line option to ignore one or more contexts:
+There could be a command-line option to ignore one or more contexts:
 ```
   -i init,end
 ```
-would ignore the special initialization and termination contexts
-`init` and `end`.
+would ignore the contexts named `init` and `end`.
 
-Final results could report file and line number of errors
+Final results could report feature file name and line number of errors
+
+There could be a `-l` command line option to output per-context log files.
 
 JUnit reports currently cannot be generated.
 
