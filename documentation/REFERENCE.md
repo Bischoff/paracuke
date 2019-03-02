@@ -15,12 +15,12 @@ To use this package:
 To build the tests:
 ```
   $ cd ~/go/src/github.com/Bischoff/paracuke/
-  $ go build test/stepdefinitions.go
+  $ go build test/step_definitions.go
 ```
 
 To run the tests:
 ```
-  $ ./stepdefinitions test/dummy.contexts
+  $ ./step_definitions test/dummy.contexts
 ```
 
 Use `-h` option to see the available command line
