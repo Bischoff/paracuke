@@ -184,15 +184,10 @@ the `Data` map:
 ```
 
 
-## Comparaison with other parallel cucumber solutions
+## Some internals
 
 In paracuke, the atomic unit is the test step (`Given`, `When`,
 or `Then`). This means that the context might change between two steps
-of the same scenario, unlike parallel-cucumber-js:
+of the same scenario.
 
-  https://github.com/simondean/parallel-cucumber-js
-
-where the atomic unit is the scenario.
-
-The parallelism in paracuke is acheived through coroutines, whereas
-parallel-cucumber-js uses preemptive multitasking workers.
+The parallelism in paracuke is acheived through coroutines.
